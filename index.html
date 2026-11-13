@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#14382c">
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png">
+<title>Catatan Pesanan</title>
+<style>
+:root{--bg:#eef3ec;--card:#fff;--ink:#14382c;--mut:#5d7068;--ac:#e0a526;--bd:#d3ddd5}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1a15;--card:#18271f;--ink:#e6efe9;--mut:#93a89d;--bd:#2a3d33}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--ink);padding-bottom:76px}
+header{background:#14382c;color:#f4e3b0;padding:14px 16px;font:700 20px Georgia,serif;position:sticky;top:0;z-index:2}
+main{max-width:560px;margin:auto;padding:12px 14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:10px}
+.row{display:flex;gap:8px;align-items:center}.r{float:right}.mut{color:var(--mut);font-size:14px}
+ul{margin:6px 0;padding-left:18px}
+label{display:block;margin-bottom:8px;font-size:14px;color:var(--mut)}
+input{width:100%;padding:10px;border:1px solid var(--bd);border-radius:8px;font:inherit;background:var(--bg);color:var(--ink)}
+.btn{flex:1;padding:12px;border:0;border-radius:8px;background:#14382c;color:#f4e3b0;font:600 16px inherit;margin:4px 0;width:100%}
+.ghost{background:transparent;color:var(--ink);border:1px solid var(--bd)}
+.q{width:40px;height:40px;border-radius:50%;border:1px solid var(--bd);background:var(--bg);color:var(--ink);font-size:20px}
+.tag{background:var(--ac);color:#14382c;border-radius:6px;padding:1px 8px;font-size:13px;font-weight:600}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;padding:14px 0;border:0;background:none;color:var(--mut);font:600 14px inherit}
+nav .on{color:var(--ink);box-shadow:inset 0 3px var(--ac)}
+</style></head><body>
+<header>Catatan Pesanan</header><main id="v"></main>
+<nav id="nav"><button data-t="pesanan">Pesanan</button><button data-t="menu">Menu</button><button data-t="rekap">Rekap</button><button data-t="backup">Backup</button></nav>
+<script>
+const rp=n=>'Rp'+Number(n).toLocaleString('id-ID');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+let db,tab='pesanan',menu=[],orders=[],qty={};
+// --- IndexedDB: dua "object store" = dua tabel
+const open=()=>new Promise((ok,no)=>{const r=indexedDB.open('pesananUMKM',1);
+ r.onupgradeneeded=()=>{['menu','pesanan'].forEach(n=>r.result.createObjectStore(n,{keyPath:'id',autoIncrement:true}))};
+ r.onsuccess=()=>{db=r.result;ok()};r.onerror=()=>no(r.error)});
+const req=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+const st=(n,m='readonly')=>db.transaction(n,m).objectStore(n);
+const put=(n,o)=>req(st(n,'readwrite').put(o));
+const del=(n,id)=>req(st(n,'readwrite').delete(id));
+const load=async()=>{menu=await req(st('menu').getAll());orders=await req(st('pesanan').getAll())};
+const hitung=()=>menu.reduce((s,m)=>s+m.harga*(qty[m.id]||0),0);
+const NEXT={Diproses:'Diantar',Diantar:'Selesai'};
+// --- Tampilan
+const card=o=>`<div class="card"><b>${esc(o.pemesan)}</b> <span class="tag">${o.status}</span>
+<div class="mut">Lokasi: ${esc(o.lokasi)} (${o.tanggal})</div>
+<ul>${o.items.map(i=>`<li>${i.jumlah}× ${esc(i.nama)} <span class="r">${rp(i.harga*i.jumlah)}</span></li>`).join('')}</ul>
+<b>Total ${rp(o.total)}</b><div class="row">${NEXT[o.status]?`<button class="btn" data-a="next" data-id="${o.id}">Tandai ${NEXT[o.status]}</button>`:''}
+<button class="btn ghost" data-a="hapus" data-id="${o.id}">Hapus</button></div></div>`;
+const V={
+pesanan:()=>{const a=orders.filter(o=>o.status!=='Selesai').sort((x,y)=>y.id-x.id);
+ return `<button class="btn" data-a="baru">Tambah pesanan</button>`+(a.length?a.map(card).join(''):'<p class="mut">Belum ada pesanan aktif.</p>')},
+form:()=>!menu.length?'<p>Isi daftar lauk dulu di tab Menu.</p>':
+ `<div class="card"><label>Nama pemesan<input id="fn"></label><label>Lokasi singkat<input id="fl" placeholder="mis. Kos Melati, Tikala"></label><label>Tanggal<input id="ft" type="date" value="${today()}"></label></div>`+
+ menu.map(m=>`<div class="card row"><div style="flex:1">${esc(m.nama)}<div class="mut">${rp(m.harga)}</div></div><button class="q" data-a="min" data-id="${m.id}">−</button><b id="q${m.id}" style="min-width:20px;text-align:center">${qty[m.id]||0}</b><button class="q" data-a="plus" data-id="${m.id}">+</button></div>`).join('')+
+ `<div class="card"><b id="tot">Total ${rp(hitung())}</b></div><div class="row"><button class="btn" data-a="simpan">Simpan pesanan</button><button class="btn ghost" data-a="batal">Batal</button></div>`,
+menu:()=>`<div class="card"><label>Nama lauk<input id="mn"></label><label>Harga (Rp)<input id="mh" type="number" inputmode="numeric"></label><button class="btn" data-a="addmenu">Simpan lauk</button></div>`+
+ (menu.length?menu.map(m=>`<div class="card row"><div style="flex:1">${esc(m.nama)}<div class="mut">${rp(m.harga)}</div></div><button class="q" data-a="ubah" data-id="${m.id}">✎</button><button class="q" data-a="delmenu" data-id="${m.id}">×</button></div>`).join(''):'<p class="mut">Belum ada lauk. Tambahkan yang pertama.</p>'),
+rekap:()=>{const s=orders.filter(o=>o.status==='Selesai'),sum=a=>a.reduce((t,o)=>t+o.total,0),bln=today().slice(0,7);
+ const h=s.filter(o=>o.tanggal===today()),b=s.filter(o=>o.tanggal.startsWith(bln)),c={};
+ s.forEach(o=>o.items.forEach(i=>c[i.nama]=(c[i.nama]||0)+i.jumlah));
+ const top=Object.entries(c).sort((x,y)=>y[1]-x[1]).slice(0,5);
+ return `<div class="card"><b>Hari ini</b><div>${rp(sum(h))} dari ${h.length} pesanan</div></div><div class="card"><b>Bulan ini</b><div>${rp(sum(b))} dari ${b.length} pesanan</div></div>
+ <div class="card"><b>Lauk terlaris</b>${top.length?'<ul>'+top.map(t=>`<li>${esc(t[0])}: ${t[1]} porsi</li>`).join('')+'</ul>':'<div class="mut">Belum ada pesanan selesai.</div>'}</div>
+ <b>Riwayat selesai</b>`+s.sort((x,y)=>y.id-x.id).slice(0,30).map(card).join('')},
+backup:()=>`<div class="card"><b>Simpan cadangan</b><p class="mut">Data hanya ada di HP ini. Ekspor secara rutin lalu kirim file ke WhatsApp atau Google Drive.</p><button class="btn" data-a="ekspor">Ekspor data</button></div>
+ <div class="card"><b>Pulihkan data</b><p class="mut">Memilih file akan mengganti semua data di HP ini.</p><input id="imp" type="file" accept=".json"></div>`};
+const render=()=>{document.getElementById('v').innerHTML=V[tab]();
+ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===(tab==='form'?'pesanan':tab)))};
+const go=async t=>{tab=t;await load();render()};
+// --- Aksi (satu pendengar klik untuk semua tombol)
+document.addEventListener('click',async e=>{
+ const nb=e.target.closest('nav button');if(nb)return go(nb.dataset.t);
+ const el=e.target.closest('[data-a]');if(!el)return;const a=el.dataset.a,id=+el.dataset.id;
+ if(a==='baru'){qty={};return go('form')}
+ if(a==='batal')return go('pesanan');
+ if(a==='plus'||a==='min'){qty[id]=Math.max(0,(qty[id]||0)+(a==='plus'?1:-1));
+  document.getElementById('q'+id).textContent=qty[id];document.getElementById('tot').textContent='Total '+rp(hitung());return}
+ if(a==='simpan'){const n=fn.value.trim(),l=fl.value.trim(),items=menu.filter(m=>qty[m.id]).map(m=>({nama:m.nama,harga:m.harga,jumlah:qty[m.id]}));
+  if(!n||!l)return alert('Isi nama pemesan dan lokasi.');if(!items.length)return alert('Pilih minimal satu lauk.');
+  await put('pesanan',{pemesan:n,lokasi:l,tanggal:ft.value||today(),status:'Diproses',items,total:hitung()});return go('pesanan')}
+ if(a==='next'){const o=orders.find(x=>x.id===id);o.status=NEXT[o.status];await put('pesanan',o);return go('pesanan')}
+ if(a==='hapus'){if(confirm('Hapus pesanan ini?')){await del('pesanan',id);go(tab)}return}
+ if(a==='addmenu'){const n=mn.value.trim(),h=+mh.value;if(!n||!(h>0))return alert('Isi nama lauk dan harga.');await put('menu',{nama:n,harga:h});return go('menu')}
+ if(a==='ubah'){const m=menu.find(x=>x.id===id),h=+prompt('Harga baru untuk '+m.nama,m.harga);if(h>0){m.harga=h;await put('menu',m);go('menu')}return}
+ if(a==='delmenu'){if(confirm('Hapus lauk ini dari menu?')){await del('menu',id);go('menu')}return}
+ if(a==='ekspor'){const f=document.createElement('a');f.href=URL.createObjectURL(new Blob([JSON.stringify({versi:1,menu,pesanan:orders})],{type:'application/json'}));f.download='pesanan-backup-'+today()+'.json';f.click()}
+});
+document.addEventListener('change',async e=>{if(e.target.id!=='imp')return;
+ try{const d=JSON.parse(await e.target.files[0].text());if(!Array.isArray(d.menu)||!Array.isArray(d.pesanan))throw 0;
+  if(!confirm('Ganti semua data dengan isi file ini?'))return;
+  for(const n of['menu','pesanan']){await req(st(n,'readwrite').clear());for(const o of d[n])await put(n,o)}
+  alert('Data dipulihkan.');go('pesanan')}catch{alert('File tidak valid.')}});
+open().then(()=>go('pesanan'));
+navigator.storage?.persist?.();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+</script></body></html>
